@@ -21,6 +21,9 @@ import LogoutModal from "./LogoutModal";
 import { apiRequest } from "./api";
 import { getAllowedNavIds } from "./rbac";
 import "./ManagementLayout.css";
+import { Menu, X } from 'lucide-react';
+import logo from './assets/logo.png';
+import './Mobile.css';
 
 const pages = {
   dashboard: Dashboard,
@@ -43,12 +46,32 @@ function isResetPasswordRoute() {
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(localStorage.getItem("token")));
-  const [activeItem, setActiveItem] = useState("dashboard");
+  const [activeItem, setActiveItem] = useState(() => window.location.hash.slice(2) in pages ? window.location.hash.slice(2) : 'dashboard');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [showResetPage, setShowResetPage] = useState(isResetPasswordRoute);
   const [currentUser, setCurrentUser] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [sessionError, setSessionError] = useState('');
+
+  const navigate = (id) => {
+    if (!(id in pages)) return;
+    setActiveItem(id);
+    setMenuOpen(false);
+    if (window.location.hash !== `#/${id}`) window.location.hash = `/${id}`;
+    window.scrollTo(0, 0);
+  };
+
+  useEffect(() => {
+    const onNavigate = () => {
+      const id = window.location.hash.slice(2);
+      if (id in pages) { setActiveItem(id); setMenuOpen(false); }
+    };
+    const onKey = event => { if (event.key === 'Escape') setMenuOpen(false); };
+    window.addEventListener('hashchange', onNavigate);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('hashchange', onNavigate); window.removeEventListener('keydown', onKey); };
+  }, []);
 
   useLayoutEffect(() => {
     const onSessionExpired = event => {
@@ -144,14 +167,21 @@ export default function App() {
   const ActivePage = pages[resolvedActiveItem];
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${menuOpen ? ' mobile-menu-open' : ''}`}>
+      <header className="mobile-app-header">
+        <button type="button" onClick={() => setMenuOpen(value => !value)} aria-label={menuOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={menuOpen} aria-controls="app-navigation">{menuOpen ? <X size={24} /> : <Menu size={24} />}</button>
+        <img src={logo} alt="GasTrack" />
+      </header>
+      {menuOpen && <button className="mobile-menu-backdrop" onClick={() => setMenuOpen(false)} aria-label="Close navigation" />}
+      <div id="app-navigation" className="app-navigation">
       <Sidebar
         accessIds={allowedNavIds}
         sessionUser={currentUser}
         activeItem={resolvedActiveItem}
-        onNavigate={setActiveItem}
+        onNavigate={navigate}
         onProfileClick={() => setIsLogoutModalOpen(true)}
       />
+      </div>
       <main className="app-content">
         {sessionError && <p role="alert">{sessionError}</p>}
         {!sessionReady ? <p>Verifying your account...</p> : ActivePage ? <ActivePage /> : <p>No module access is assigned to your account. Contact an administrator.</p>}

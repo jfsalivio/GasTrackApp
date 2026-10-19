@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+export const API_BASE_URL = (window.__GASTRACK_API_BASE_URL__ || import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
 const PUBLIC_AUTH_PATHS = new Set(['/auth/login', '/auth/register', '/auth/forgot-password', '/auth/reset-password', '/auth/reset-password/validate']);
 const SESSION_MESSAGE = 'Your session is missing or expired. Please sign in again.';
 

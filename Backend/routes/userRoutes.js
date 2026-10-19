@@ -86,7 +86,6 @@ router.get(
     if (status) {
       sql += ` AND u.Status = :status`;
       params.status = status;
-      if (target.Status !== status) changes.push(`Changed status from ${target.Status} to ${status}`);
     }
     if (branch) {
       sql += ` AND w.WarehouseName = :branch`;
@@ -122,7 +121,6 @@ router.get(
     if (status) {
       whereClause += ` AND u.Status = :status`;
       params.status = status;
-      if (target.Status !== status) changes.push(`Changed status from ${target.Status} to ${status}`);
     }
 
     if (module) { whereClause += ` AND a.Module = :module`; params.module = module; }

@@ -32,6 +32,7 @@ const app = express();
 // Configured allowed origins list
 const allowedOrigins = [
   "https://gastrack-frontend-v2.vercel.app",
+  "https://appassets.androidplatform.net",
   
 ];
 

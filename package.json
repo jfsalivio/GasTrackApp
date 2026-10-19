@@ -9,6 +9,7 @@
     "deploy": "gh-pages -d dist",
     "dev": "vite",
     "build": "vite build",
+    "build:android": "node scripts/build-android-web.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },

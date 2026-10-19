@@ -1,4 +1,8 @@
-const apiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000").replace(/\/+$/, "");
+import { API_BASE_URL } from '../api';
+const apiBase = API_BASE_URL;
+const apiImage = path => window.GasTrackAndroid
+  ? `${window.location.origin}/backend/${path.replace(/^\/+/, '')}`
+  : `${apiBase}/${path.replace(/^\/+/, '')}`;
 
 const accessoryImages = [
   [/hose clamp.*1\.5/i, "acc-lpg-hoseclamp-1.5.png"],
@@ -17,22 +21,27 @@ export function resolveProductImage(product) {
   const raw = product?.ImageURL || product?.imageUrl || product?.Imageurl || product?.imageURL;
   if (raw) {
     const url = String(raw).trim().replace(/\\/g, "/");
-    if (/^(https?:|data:|blob:)/i.test(url)) return url;
+    if (/^(data:|blob:)/i.test(url)) return url;
+    if (/^https?:/i.test(url)) {
+      const parsed = new URL(url);
+      if (parsed.pathname.startsWith('/uploads/') && (parsed.origin === new URL(apiBase).origin || ['localhost', '127.0.0.1', '10.0.2.2'].includes(parsed.hostname))) return apiImage(parsed.pathname);
+      return url;
+    }
     const path = url.replace(/^\/+/, "");
     // These assets are served by Vite, including deployments under a base path.
     if (path.startsWith("assets/products/")) return `${import.meta.env.BASE_URL}${path}`;
-    return `${apiBase}/${path}`;
+    return apiImage(path);
   }
 
   const name = product?.ProductName || product?.name || "";
   const accessory = accessoryImages.find(([pattern]) => pattern.test(name));
-  if (accessory) return `${apiBase}/uploads/${accessory[1]}`;
+  if (accessory) return apiImage(`uploads/${accessory[1]}`);
 
   const size = name.match(/(2\.7|7|11|22|50)\s*kg/i)?.[1];
   if (size && /gasul|cylinder/i.test(name)) {
     const type = /cylinder/i.test(name) ? "cylinder" : "gasul";
     const variant = /elite/i.test(name) && size === "11" ? "elite11" : size;
-    return `${apiBase}/uploads/${type}-${variant}kg.png`;
+    return apiImage(`uploads/${type}-${variant}kg.png`);
   }
   return productImagePlaceholder;
 }

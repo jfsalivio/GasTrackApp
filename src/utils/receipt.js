@@ -172,6 +172,11 @@ export async function printReceipt(sale) {
   const settings = await getSettings({ forceRefresh: true });
   const html = buildReceiptHtml(sale, settings);
 
+  if (window.GasTrackAndroid) {
+    window.GasTrackAndroid.printReceipt(html);
+    return;
+  }
+
   try {
     await printViaIframe(html);
   } catch (err) {

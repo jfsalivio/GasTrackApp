@@ -3,6 +3,19 @@
 Current system: React/Vite frontend (`src`), Express API (`Backend`), MySQL,
 and the Flask restocking service (`ML`). Use Windows PowerShell commands below.
 
+## Android application
+
+Open `android` in Android Studio. The APK packages the same React screens, images,
+forms and workflows as the web frontend, with phone layouts and Android file/print
+dialogs. Gradle automatically runs `npm.cmd run build:android`; install root Node
+dependencies before building. The installed app does not require a Vite server.
+
+Start the API and ML services as described below, then run the Android `app`
+configuration on an emulator. Debug connects to `http://10.0.2.2:4000/`. Database
+credentials stay in `Backend/.env`; the private SQL snapshot is not committed.
+See [Android setup](android/README.md) for JDK/SDK requirements, build commands,
+physical-device endpoints and verification details.
+
 ## Run the system
 
 Start each service in a separate terminal from the project root.

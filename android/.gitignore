@@ -1,0 +1,16 @@
+.gradle/
+.gradle-user/
+.tools/
+.android/
+.android-user/
+window.xml
+emulator-*.log
+emulator-gastrack.png
+app/src/main/assets/web/
+review/
+.kotlin/
+local.properties
+analytics.settings
+**/build/
+*.jks
+*.keystore

@@ -1,0 +1,43 @@
+.mobile-app-header, .mobile-menu-backdrop { display: none; }
+.app-navigation { flex: 0 0 240px; }
+
+@media (max-width: 760px) {
+  html { -webkit-text-size-adjust: 100%; }
+  body { background: #f3f5f8; }
+  .app-shell { display: block; padding-top: 60px; }
+  .mobile-app-header {
+    position: fixed; inset: 0 0 auto; height: 60px; z-index: 90;
+    display: flex; align-items: center; gap: 16px; padding: 8px 12px;
+    background: white; border-bottom: 1px solid #e5e7eb;
+  }
+  .mobile-app-header button { width: 44px; height: 44px; border: 0; border-radius: 10px; background: #f3f5f8; color: #1e3a5f; display: grid; place-items: center; }
+  .mobile-app-header img { width: 145px; height: 40px; object-fit: contain; }
+  .app-navigation { position: fixed; top: 60px; bottom: 0; left: 0; width: 270px; z-index: 95; visibility: hidden; transform: translateX(-100%); transition: transform .2s, visibility .2s; }
+  .app-navigation .sidebar { width: 270px; min-width: 0; height: 100%; overscroll-behavior: contain; }
+  .mobile-menu-open .app-navigation { visibility: visible; transform: translateX(0); }
+  .mobile-menu-backdrop { display: block; position: fixed; inset: 60px 0 0; z-index: 94; border: 0; background: #11182780; }
+  .app-content { width: 100%; }
+  .page-layout { min-height: calc(100dvh - 60px); }
+  .module-title { font-size: 1.4rem; }
+  .page-header-actions { width: 100%; }
+  .page-header-actions > button { flex: 1 1 auto; min-height: 42px; }
+  input, select, textarea { font-size: 16px; max-width: 100%; }
+  :is(.pos-tabs, .settings-tabs, .users-tabs, .data-tabs, .orders-tabs) { overflow-x: auto; flex-wrap: nowrap; }
+  :is(.pos-tabs, .settings-tabs, .users-tabs, .data-tabs, .orders-tabs) > * { flex-shrink: 0; }
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .product-card { min-width: 0; padding: 12px; }
+  .product-image { max-width: 100%; }
+  .product-image-img { max-width: 100%; object-fit: contain; }
+  :is(.modal-overlay, .modal-backdrop, .payment-modal-overlay, .po-modal-overlay) { padding: 12px; overflow-y: auto; }
+  :is(.modal-content, .modal-card, .payment-modal, .po-modal) { max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; }
+  .login-nav { padding-inline: 16px; }
+  .login-nav-links { gap: 12px; }
+  .login-nav-link { font-size: .8rem; }
+  .login-card { padding: 28px 20px; }
+  .reg-grid.two-col, .reg-grid.three-col { grid-template-columns: 1fr; }
+  .contact-main-card { padding: 24px 18px; }
+  .settings-card { padding: 20px 16px; }
+  .business-profile-grid, .grid-2-col, .grid-3-col { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .business-profile-grid > * { min-width: 0; }
+  [class$="-modal-card"] { max-width: calc(100vw - 24px); padding: 24px 18px; }
+}
