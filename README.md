@@ -1,230 +1,636 @@
 # GasTrack
 
-Current system: React/Vite frontend (`src`), Express API (`Backend`), MySQL,
-and the Flask restocking service (`ML`). Use Windows PowerShell commands below.
+GasTrack includes a web application, an Android application, an Express backend,
+a MySQL database, and a Python restocking service. The Android APK bundles the
+same React frontend used by the website, with layouts for phones and Android
+file-selection, download, and printing dialogs.
 
-## Android application
+All terminal commands below use **Windows PowerShell**. Run them from the
+repository root unless a section explicitly changes directories. Use `npm.cmd`
+instead of `npm` if PowerShell blocks `npm.ps1`.
 
-Open `android` in Android Studio. The APK packages the same React screens, images,
-forms and workflows as the web frontend, with phone layouts and Android file/print
-dialogs. Gradle automatically runs `npm.cmd run build:android`; install root Node
-dependencies before building. The installed app does not require a Vite server.
+## Contents
 
-Start the API and ML services as described below, then run the Android `app`
-configuration on an emulator. Debug connects to `http://10.0.2.2:4000/`. Database
-credentials stay in `Backend/.env`; the private SQL snapshot is not committed.
-See [Android setup](android/README.md) for JDK/SDK requirements, build commands,
-physical-device endpoints and verification details.
+- [Components and addresses](#components-and-addresses)
+- [Requirements](#requirements)
+- [First-time setup](#first-time-setup)
+- [Restore or connect the database](#restore-or-connect-the-database)
+- [Prepare the ML model](#prepare-the-ml-model)
+- [Daily startup: backend, ML, and web frontend](#daily-startup-backend-ml-and-web-frontend)
+- [Run the Android application](#run-the-android-application)
+- [Verify the installation](#verify-the-installation)
+- [Build and test](#build-and-test)
+- [Stop and restart](#stop-and-restart)
+- [Database backups and upgrades](#database-backups-and-upgrades)
+- [Troubleshooting](#troubleshooting)
 
-## Run the system
+## Components and addresses
 
-Start each service in a separate terminal from the project root.
+| Component | Location | Local address / purpose |
+| --- | --- | --- |
+| Web frontend | `src`, root `package.json` | `http://localhost:5173` |
+| Android application | `android` | Installed APK; frontend files are bundled inside it |
+| Express API | `Backend` | `http://localhost:4000` |
+| MySQL | Configured in environment files | Usually `127.0.0.1:3306` for a local installation |
+| Flask / XGBoost ML service | `ML` | `http://localhost:5001` |
 
-Backend:
+The web frontend and Android application call Express. Express reads and writes
+MySQL and calls Flask for restocking predictions. Android does not connect to
+MySQL or Flask directly. API routes have **no `/api` prefix**.
 
-```powershell
-cd Backend
-npm.cmd run dev
-```
+For the **web app**, run the backend, ML service, and Vite frontend. For the
+**Android app**, run the backend and ML service, then launch the APK; a running
+Vite server is not required. MySQL must be available in both cases.
 
-ML service:
+## Requirements
 
-```powershell
-cd ML
-.\venv\Scripts\python.exe serve.py
-```
+Install these before setting up a new machine:
 
-Frontend:
+| Requirement | Used for |
+| --- | --- |
+| Git | Clone and update the repository |
+| Node.js and npm | Frontend, backend, and Android frontend bundling; Vite requires Node `^20.19.0` or `>=22.12.0` |
+| Python with `venv` and `pip` | Install packages from `ML/requirements.txt` and run Flask / XGBoost |
+| MySQL 8 with TLS | Application data; use your configured remote server or a local server |
+| MySQL 8 client tools: `mysql`, `mysqldump` | Restore and capture the private database snapshot |
+| Android Studio, JDK 17 or 21 | Build and run Android; these are not needed for web-only use |
+| Android SDK Platform 35 and Build Tools 35 | Compile the Android project |
+| Android Emulator and Platform Tools | Run a virtual device and install APKs using ADB |
 
-```powershell
-npm.cmd run dev
-```
-
-Open http://localhost:5173. The API uses port 4000 and ML uses port 5001.
-Stop each service with Ctrl+C. Use your existing account and password.
-
-Both `npm.cmd run dev` and `npm.cmd start` in `Backend` check the database
-before starting. If it already contains tables, seeding is skipped. Restarting
-preserves saved records, edits, deletions, accounts, and passwords.
-
-Company registration collects the registered company name, branch name, complete
-address, administrator first and last name, email, password, and confirmation.
-For an existing database or one restored from an older snapshot, run
-`npm.cmd run migrate:company-registration` from `Backend` before using registration.
-This removes the legacy DTI/SEC, DOE license, and city/municipality columns
-from Company if present, including any values stored in those columns.
-
-Run `npm.cmd run migrate:company-profile` from `Backend` when upgrading an older
-database. This renames Business Profile `FullName` to `CompanyName`, preserving
-its value, and removes the unused CompanySettings `Branch`, `Warehouse`, and
-`Brand` columns. Registration fills the profile company name, address, and email.
-The primary branch is created in Manage Branches and assigned to the initial
-administrator and default warehouse.
-
-## Current database is the only seed
-
-The configured database was captured on October 16, 2026 in
-`Backend/db/snapshots/current.sql`. This snapshot contains the actual schema,
-records, indexes, triggers, routines, and events exported by MySQL. There are
-no demo products, role-only initialization, random stock, or synthetic sales
-added by the active seed command.
-
-The snapshot is private and ignored by Git because it contains business data
-and account password hashes. Keep a secure copy with your backups. A fresh
-clone must receive this file separately; Git alone cannot restore your data.
-Uploaded files under `Backend/uploads` and the ML model are separate assets
-and must be copied separately when moving the installation.
-
-To restore on another installation:
-
-1. Install dependencies and configure the environment files below.
-2. Create an empty MySQL database and point `Backend/.env` at it.
-3. Copy your snapshot to `Backend/db/snapshots/current.sql`.
-4. Stop other application instances and run the backend normally, or run:
+Check the command-line tools:
 
 ```powershell
-cd Backend
-npm.cmd run seed
+git --version
+node --version
+npm.cmd --version
+python --version
 ```
 
-The seed restores only into a database with no tables or views. It never
-merges into or overwrites an existing installation. A missing snapshot on an
-empty database stops startup instead of falling back to old seeds. Do not
-import `Backend/db/schema.sql` first: the snapshot includes the current schema.
-If an import fails partway, use a new empty database after resolving the error;
-MySQL schema changes cannot be rolled back as one transaction.
+For Android Studio, select a **Gradle JDK of 17 or 21**. Do not use a bundled
+JDK 25 for this project. Android's minimum supported API is 26; compile and
+target API are 35. Install SDK components using Android Studio's SDK Manager.
 
-To intentionally replace the saved seed with a newer copy of the configured
-database, stop application writers and run:
+## First-time setup
+
+### 1. Open or clone the repository
+
+If you already have the project, open PowerShell and change to its root:
 
 ```powershell
-cd Backend
-npm.cmd run seed:capture
+Set-Location 'C:\Users\user\AndroidStudioProjects\GasTrackApp'
 ```
 
-This reads the database and replaces the local snapshot only after a successful
-export. Normal startup never refreshes the snapshot. Old demo scripts and
-historical SQL patches are outside the current startup/setup flow. Apply a
-migration only when a future change specifically requires it.
+For a new clone:
 
-## Install on a new machine
+```powershell
+git clone https://github.com/jfsalivio/GasTrackApp.git
+Set-Location GasTrackApp
+```
 
-Requirements: Node.js compatible with the committed Vite version
-(`^20.19.0` or `>=22.12.0`), Python with virtual environment support, and MySQL
-with TLS. Install MySQL 8 command-line tools (`mysql` and `mysqldump`). The
-snapshot scripts also detect the standard Windows MySQL Server 8.0 install;
-custom locations can be configured with `MYSQL_CLIENT_PATH` and `MYSQLDUMP_PATH`
-in `Backend/.env`.
+The root contains `package.json`, `src`, `Backend`, `ML`, and `android`.
 
-From the project root:
+### 2. Install frontend and backend dependencies
+
+From the repository root:
 
 ```powershell
 npm.cmd ci
 npm.cmd --prefix Backend ci
-if (!(Test-Path Backend/.env)) { Copy-Item Backend/.env.example Backend/.env }
-if (!(Test-Path ML/.env)) { Copy-Item ML/.env.example ML/.env }
 ```
 
-Create root `.env` with:
+Install the root dependencies even when running Android only: Gradle uses Vite
+to bundle the frontend into the APK.
+
+### 3. Create the environment files
+
+These commands create missing files and preserve existing configuration:
+
+```powershell
+if (!(Test-Path Backend/.env)) { Copy-Item Backend/.env.example Backend/.env }
+if (!(Test-Path ML/.env)) { Copy-Item ML/.env.example ML/.env }
+if (!(Test-Path .env)) {
+    'VITE_API_BASE_URL=http://localhost:4000' | Set-Content -Encoding UTF8 .env
+}
+```
+
+Edit each file using your own connection settings. Environment files are
+ignored by Git; cloning the repository does not supply working credentials.
+If an existing installation is already working, keep its database name,
+passwords, and JWT secret.
+
+#### Root `.env`: web frontend
 
 ```dotenv
 VITE_API_BASE_URL=http://localhost:4000
 ```
 
-Set these values in `Backend/.env` using your actual database credentials:
+This value is the API address reachable by the browser. Restart Vite after
+changing it, or rebuild if serving compiled frontend files. Do not add database
+passwords or server secrets to `VITE_` variables: these are frontend values.
+
+#### `Backend/.env`: API and database
+
+Example for a new local installation; replace the placeholder values:
 
 ```dotenv
 PORT=4000
-DB_HOST=your_mysql_host
+DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=your_mysql_user
 DB_PASSWORD=your_mysql_password
-DB_NAME=your_database
+DB_NAME=gastrack
 JWT_SECRET=replace_with_a_long_random_secret
 JWT_EXPIRES_IN=8h
 CORS_ORIGIN=http://localhost:5173,http://127.0.0.1:5173
 FRONTEND_URL=http://localhost:5173
-FRONTEND_BASE_PATH=/
-ML_SERVICE_URL=http://localhost:5001
+FRONTEND_BASE_PATH=
+ML_SERVICE_URL=http://127.0.0.1:5001
 ```
 
-Configure SMTP fields from the example if using password-reset email.
-Set the same database credentials in `ML/.env` and `ML_SERVICE_PORT=5001`.
-Keep environment files private. Restart services after configuration changes.
-
-Install and train ML once, from the project root:
+For a new installation, generate a JWT secret with:
 
 ```powershell
-cd ML
+node -p "require('node:crypto').randomBytes(32).toString('hex')"
+```
+
+Paste the result into `JWT_SECRET`. Changing the secret on an existing
+installation invalidates its current sign-in tokens.
+
+For local Vite, leave `FRONTEND_BASE_PATH` empty. The example file also supports
+deployment under a subdirectory; keeping an old `/GasTrack-CAPSTONE` value for
+local Vite would point password-reset emails at the wrong path.
+
+Configure SMTP if using password-reset or other email workflows:
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your.email@gmail.com
+SMTP_PASS=your_email_app_password
+SMTP_FROM="GasTrack <your.email@gmail.com>"
+```
+
+Use the host, port, credentials, and TLS setting required by your email provider.
+The API and ordinary data screens can run without working email delivery, but
+email-dependent workflows need valid SMTP configuration.
+
+#### `ML/.env`: training database and Flask port
+
+```dotenv
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=your_mysql_user
+DB_PASSWORD=your_mysql_password
+DB_NAME=gastrack
+ML_SERVICE_PORT=5001
+```
+
+Use the **same database** as `Backend/.env`, including an existing review database
+name if that is the installation you are using. ML loads this file relative to
+its scripts; UTF-8 files with or without a byte-order mark are supported.
+
+## Restore or connect the database
+
+### Existing installation
+
+Start the MySQL server if it is local, or make sure the configured remote server
+is reachable. Keep the existing `Backend/.env` and `ML/.env` values. Normal
+backend startup checks the database and skips seeding when tables already exist;
+restarting preserves saved accounts, passwords, and business records.
+
+Check the configured connection from the repository root:
+
+```powershell
+Set-Location Backend
+node test-db.js
+```
+
+Expected output includes `Connection successful!` and `Query result: 2`.
+
+### New installation using the private snapshot
+
+The database backup belongs at:
+
+```text
+Backend/db/snapshots/current.sql
+```
+
+**This file is private and is not included in GitHub.** Obtain a copy from the
+project owner. It contains the saved schema and business records, including
+account password hashes. There is no public demo seed or default login password.
+
+1. Start MySQL and create a **new empty database** using MySQL Workbench or the
+   MySQL command-line client. For example:
+
+   ```sql
+   CREATE DATABASE gastrack CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+   ```
+
+2. Set `DB_NAME` in both environment files to that database and configure the
+   correct host, port, username, and password.
+3. Copy the private snapshot to `Backend/db/snapshots/current.sql`.
+4. Stop other instances that might write to this database, then restore from
+   the repository root:
+
+   ```powershell
+   Set-Location Backend
+   npm.cmd run seed
+   node test-db.js
+   ```
+
+The seed restores only into a database with **no tables or views**. It does not
+overwrite or merge into an existing installation. A missing snapshot on an empty
+database stops startup. Do not import `Backend/db/schema.sql` before this restore:
+the snapshot already includes the schema. If a restore fails partway, resolve
+the error and retry with a new empty database.
+
+The restore uses MySQL client tools with TLS required. The scripts detect the
+standard `C:\Program Files\MySQL\MySQL Server 8.0\bin` installation. For another
+location, add the actual executable paths to `Backend/.env`:
+
+```dotenv
+MYSQL_CLIENT_PATH=C:/path/to/mysql.exe
+MYSQLDUMP_PATH=C:/path/to/mysqldump.exe
+```
+
+Copy any additional files in `Backend/uploads` separately when moving an
+installation. The SQL snapshot does not contain uploaded files or the ML model.
+
+## Prepare the ML model
+
+### 1. Create the Python environment and install packages
+
+From the repository root:
+
+```powershell
+Set-Location ML
 python -m venv venv
 .\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip check
+```
+
+Using the virtual environment's Python executable directly avoids having to
+activate it in every terminal.
+
+### 2. Reuse or train the model
+
+Flask expects this file:
+
+```text
+ML/restock_model.pkl
+```
+
+If a compatible saved model was supplied with your installation, keep and reuse
+it. The model is ignored by Git and is not downloaded by `git clone`.
+
+If the file is missing, configure `ML/.env`, restore/connect the database, then
+run from the `ML` directory:
+
+```powershell
 .\venv\Scripts\python.exe train_model.py
 ```
 
-Training creates `ML/restock_model.pkl`; reuse it on subsequent launches.
-ML training may use synthetic bootstrap samples internally; it does not seed
-business records into MySQL. The backend uses a heuristic fallback if ML is
-unavailable.
+Training saves `restock_model.pkl`. It uses available MySQL history and synthetic
+bootstrap samples; it does not insert synthetic sales or stock into MySQL.
+Check the training output to confirm the database connection if you want real
+history included. Training can fall back to bootstrap samples when database
+history cannot be loaded.
 
-## Check the installation
+Train once for setup, reuse the saved model for daily startup, and retrain when
+you intentionally want to incorporate newer history. Restart Flask after
+replacing the model. Only load model files from a trusted source.
 
-Latest local check: October 16, 2026 (Asia/Shanghai).
+## Daily startup: backend, ML, and web frontend
 
-| Component | Verified result |
-| --- | --- |
-| Frontend | Port 5173 responds; production build passes. Lint exits successfully with 13 warnings. Vite reports a large JavaScript chunk. |
-| Backend | Port 4000 health responds; MySQL connection and authenticated Business Profile read pass. Profile company name, address, and email match MySQL. |
-| Backend tests | 120 tests pass with all database integration flags enabled and sequential execution. Includes vehicle ID allocation, physical rate deletion, historical vehicle snapshots, pickup, delivery, purchase orders, customers, and user/audit APIs. Integration fixtures roll back their business data. |
-| ML | Port 5001 health reports `model_loaded: true`; prediction and backend ML client checks pass. Python compilation, dependency checks, and MySQL connection pass. |
-| SQL schema | Vehicle storage, delivery snapshots, and wider audit record IDs are included in migrations/schema. Apply the migrations below after restoring an older SQL snapshot. No snapshot restore was performed during these checks. |
+After first-time setup, use separate PowerShell terminals. Each block below
+starts from the repository root. Leave the service terminals open.
 
-ML reads its own `.env` relative to the script and supports UTF-8 files with or
-without a byte-order mark. Restart ML after pulling this environment-loading fix.
-Existing immutable audit records, including prior registration test history,
-remain part of the current database and snapshot.
+### Terminal 1: backend API
+
+```powershell
+Set-Location Backend
+npm.cmd run dev
+```
+
+Expected output:
+
+```text
+GasTrack API listening on port 4000
+```
+
+`npm.cmd run dev` uses nodemon and restarts the API when backend files change.
+For a process without automatic reload, use `npm.cmd start` instead. Both
+commands check/seed the database before starting.
+
+### Terminal 2: ML service
+
+```powershell
+Set-Location ML
+.\venv\Scripts\python.exe serve.py
+```
+
+Expected output includes Flask listening on port `5001`. Keep this running while
+using ML-backed restocking. The backend uses a heuristic fallback if Flask is
+unreachable; fallback operation does not mean the trained model is running.
+
+### Terminal 3: web frontend
+
+```powershell
+npm.cmd run dev
+```
+
+Open **http://localhost:5173** in a browser. Sign in with an existing account
+from the configured database, or use company registration when creating a new
+company. No password can be recovered directly from the snapshot's hashes.
+
+The frontend uses port `5173` with `strictPort` enabled; it does not silently
+switch to another port if that port is occupied.
+
+## Run the Android application
+
+### Option A: Android Studio and an emulator
+
+1. Complete root Node dependency installation and backend/database/ML setup.
+2. Start the backend and ML service using Terminals 1 and 2 above. Vite is
+   optional when using Android.
+3. In Android Studio, choose **Open** and select the repository's **`android`**
+   directory, not the repository root.
+4. In SDK Manager, install Platform 35, Build Tools 35, Platform Tools, Android
+   Emulator, and a system image for your virtual device.
+5. In Gradle settings, choose JDK 17 or 21 and let Gradle sync finish. The
+   project includes its Gradle wrapper; a separate Gradle installation is not
+   required. The first sync/build requires dependency downloads.
+6. In Device Manager, create or start an Android virtual device with API 26 or
+   newer. Wait for the home screen to finish loading.
+7. Select the **`app`** run configuration and the emulator, then click **Run**.
+8. Sign in to GasTrack. Verify Dashboard, Products, Inventory, and POS images.
+
+Gradle automatically runs `npm.cmd run build:android` from the repository root
+and packages the frontend under `android/app/src/main/assets/web`. Those
+generated files are ignored by Git. After editing React or CSS, rebuild and
+reinstall the APK to see the change on Android; Vite hot reload does not update
+an already installed APK.
+
+### Option B: build and install from PowerShell
+
+Start an emulator from Android Studio's Device Manager first. From the repository
+root, set paths to your **actual installed JDK and SDK**:
+
+```powershell
+Set-Location android
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-21'
+$env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+$env:ANDROID_USER_HOME = Join-Path $PWD '.android'
+$env:ANDROID_PREFS_ROOT = "$PWD"
+$env:GRADLE_USER_HOME = Join-Path $PWD '.gradle-user'
+
+.\gradlew.bat :app:assembleDebug
+& "$env:ANDROID_HOME\platform-tools\adb.exe" devices
+& "$env:ANDROID_HOME\platform-tools\adb.exe" install -r .\app\build\outputs\apk\debug\app-debug.apk
+& "$env:ANDROID_HOME\platform-tools\adb.exe" shell am start -n com.gastrack.app.debug/com.gastrack.app.MainActivity
+```
+
+`adb devices` should show an emulator with status `device`. If several devices
+are connected, add `-s DEVICE_SERIAL` immediately after `adb.exe` for installation
+and launch commands.
+
+The APK is written to:
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### API addresses: computer, emulator, and physical phone
+
+| Client | API address | Configuration |
+| --- | --- | --- |
+| Browser on the development computer | `http://localhost:4000` | Root `.env`: `VITE_API_BASE_URL` |
+| Standard Android Studio emulator | `http://10.0.2.2:4000/` | Android debug default |
+| Physical phone on the same network | For example `http://192.168.1.10:4000/` | Android `GASTRACK_DEV_URL` Gradle property |
+
+Inside an emulator or phone, `localhost` refers to that device, not your
+development computer. `10.0.2.2` is the standard emulator's route to the host.
+Android's configured API address overrides the root frontend `.env` inside the APK.
+
+For a physical phone, enable USB debugging, connect it, confirm it appears in
+`adb devices`, and find the computer's LAN IPv4 address with `ipconfig`. Keep
+both devices on a network where the phone can reach the computer. From `android`:
+
+```powershell
+.\gradlew.bat :app:assembleDebug -PGASTRACK_DEV_URL=http://192.168.1.10:4000/
+```
+
+Replace the example IP, install the resulting APK, and allow inbound API traffic
+on port `4000` if Windows Firewall blocks it. Keep MySQL and ML configured on the
+backend machine; the phone does not need access to their ports.
+
+### Release build
+
+Release requires an explicit HTTPS API address. From `android`:
+
+```powershell
+.\gradlew.bat :app:assembleRelease -PGASTRACK_PRODUCTION_URL=https://your-api.example.com/
+```
+
+Configure private release signing before distributing the application. Debug
+allows local HTTP; release disables cleartext traffic. Build properties should
+contain the API address only, not database passwords, JWT secrets, or SMTP keys.
+See [Android documentation](android/README.md) for further implementation details.
+
+## Verify the installation
+
+### API and ML health
+
+Run in another PowerShell terminal while the services are running:
 
 ```powershell
 Invoke-RestMethod http://localhost:4000/health
 Invoke-RestMethod http://localhost:5001/health
 ```
 
-Expect API `status: ok`, and ML `status: ok` with `model_loaded: true`.
-To check the actual database connection, run `node test-db.js` from `Backend`.
-API health alone does not check MySQL. Sign in and verify your saved records.
+Expected API response: `status: ok`. Expected ML response: `status: ok` and
+`model_loaded: True`. API health alone does not check MySQL: also run
+`node test-db.js` from `Backend` and sign in to verify saved records.
 
-Frontend checks from the project root:
+### ML prediction smoke test
+
+This computes a prediction without creating business records:
+
+```powershell
+$prediction = @{
+    items = @(@{
+        productId = 'SMOKE-TEST'
+        current_stock = 5
+        reorder_level = 10
+        sales_7d = 14
+        sales_30d = 60
+        sales_90d = 180
+        lead_time_days = 3
+        days_since_last_restock = 12
+    })
+} | ConvertTo-Json -Depth 4
+
+Invoke-RestMethod http://localhost:5001/predict -Method Post -ContentType 'application/json' -Body $prediction
+```
+
+Expect a `results` array containing `productId`, `confidence`, and
+`recommendedQuantity`. Confidence is a percentage score, not a confidence interval.
+
+### Frontend and Android checks
+
+Sign in, open each module, and confirm data loads from the expected database.
+In Android, use the menu button to switch modules. Check product images in POS,
+opening a product form, holding/restoring a cart, downloading a CSV template,
+and opening the import picker. Verify business-changing actions in a separate
+review/test database before using them with live records.
+
+## Build and test
+
+### Web frontend
+
+From the repository root:
 
 ```powershell
 npm.cmd run build
 npm.cmd run lint
+node --test scripts/mobilePlatform.test.mjs
 ```
 
-Backend tests, from `Backend`:
+Compiled web files go to `dist`. To preview them locally on the configured
+frontend port, stop Vite first, then run:
+
+```powershell
+npm.cmd run preview -- --host 127.0.0.1 --port 5173
+```
+
+Open `http://127.0.0.1:5173`. The backend and ML service still need to run.
+
+To generate just the frontend assets used by Android:
+
+```powershell
+npm.cmd run build:android
+```
+
+### Backend
+
+From the repository root, these focused regression tests do not require a live
+database:
+
+```powershell
+Set-Location Backend
+node --test tests/reportScheduling.test.js tests/usersAudit.test.js tests/userDeletion.test.js
+```
+
+For the broader suite, use a separate test database:
 
 ```powershell
 node --test tests/*.test.js
 ```
 
-This suite includes a financial-rules database test that connects to the configured
-MySQL database, runs its migration, and cleans up its temporary ledger rows. Other
-database integration tests are opt-in. Use a separate test database for repeated
-development testing.
+The broader suite includes a financial-rules test that connects to MySQL and
+runs a migration; other database integration tests are opt-in. Do not treat the
+whole suite as a read-only health check against business data.
 
-ML checks, from `ML`:
+### Android
+
+From `android`, with the JDK/SDK environment configured as shown above:
+
+```powershell
+.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+For the generated screen-check procedure, see [Android verification](android/README.md).
+Local implementation status and acceptance limits are recorded in
+[migration status](android/MIGRATION_STATUS.md).
+
+### ML
+
+From `ML`:
 
 ```powershell
 .\venv\Scripts\python.exe -m pip check
 .\venv\Scripts\python.exe -m py_compile serve.py features.py train_model.py
-$prediction = @{ items = @(@{ productId = "SMOKE-TEST"; current_stock = 5; reorder_level = 10; sales_7d = 14; sales_30d = 60; sales_90d = 180; lead_time_days = 3; days_since_last_restock = 12 }) } | ConvertTo-Json -Depth 4
-Invoke-RestMethod http://localhost:5001/predict -Method Post -ContentType "application/json" -Body $prediction
 ```
 
-The prediction check computes a response without writing business records.
+## Stop and restart
 
-Use `npm.cmd` if PowerShell blocks `npm.ps1`. If a port is occupied, stop the
-existing service before starting another copy. For database errors, check
-credentials, TLS support, and the selected database. For a missing ML model,
-run training once and restart ML.
-# Vehicle rate settings
+- Press **Ctrl+C** in each service terminal to stop Vite, Express, or Flask.
+- Closing the Android app does not stop the services running on the computer.
+- To restart daily, run the same three startup commands. Do not recreate the
+  database, restore the snapshot, reinstall all dependencies, or retrain the model
+  on every launch.
+- Restart Express after changing `Backend/.env`, Flask after changing `ML/.env`
+  or its model, and Vite after changing the root `.env`.
+- Rebuild/reinstall Android after frontend changes or an Android API-address change.
 
-For an existing database, run `npm run migrate:vehicle-rates`, `npm run migrate:delivery-vehicle-snapshot`, and `npm run migrate:vehicle-ids` from `Backend`. The vehicle-rates migration also widens audit record IDs. Vehicle IDs use `V-001` format. Admin users can manage up to 100 vehicle classes; capacity is entered in kilograms. Apply each vehicle edit, then Save the matrix to persist it. Cancel discards the draft. Saving synchronizes the matrix and the `deliveryvehiclerate` table in one transaction, physically removing deleted configuration rows. New delivery transactions retain an independent copy of their selected vehicle rate; deleting an active configuration does not delete historical vehicle details or fees. Older transactions without a saved vehicle are shown as "Not recorded".
+## Database backups and upgrades
+
+### Capture a newer snapshot
+
+Stop application writers, then from `Backend`:
+
+```powershell
+npm.cmd run seed:capture
+```
+
+This exports the configured database and replaces the private
+`db/snapshots/current.sql` only after a successful export. Normal startup never
+refreshes the backup. Store a secure copy separately from Git, along with
+additional uploads and the model if needed for transferring the installation.
+
+### Upgrade an older schema
+
+Apply migrations only when the restored schema needs them. Back up before
+upgrading; do not run every migration as a daily startup step. From `Backend`:
+
+| Older feature/schema being upgraded | Command |
+| --- | --- |
+| Company registration fields | `npm.cmd run migrate:company-registration` |
+| Business Profile company name | `npm.cmd run migrate:company-profile` |
+| Vehicle rate matrix | `npm.cmd run migrate:vehicle-rates` |
+| Historical delivery vehicle details | `npm.cmd run migrate:delivery-vehicle-snapshot` |
+| `V-001` vehicle identifiers | `npm.cmd run migrate:vehicle-ids` |
+
+The company-registration migration removes legacy DTI/SEC, DOE license, and
+city/municipality columns and their values. The company-profile migration
+preserves the company name while renaming `FullName` to `CompanyName`, and removes
+unused CompanySettings `Branch`, `Warehouse`, and `Brand` columns.
+
+Vehicle-rate edits are saved using **Save the matrix**; Cancel discards the draft.
+Deleted rate configurations are physically removed, while delivery transactions
+retain their independently saved vehicle rates. Older transactions without a
+snapshot display `Not recorded`. Additional migration scripts are listed in
+`Backend/package.json`; use them for the corresponding schema upgrade.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| `npm.ps1` cannot be loaded | Use `npm.cmd` in PowerShell. |
+| `vite` or `oxlint` is not recognized | Run `npm.cmd ci` from the repository root. |
+| Backend package/module is missing | Run `npm.cmd --prefix Backend ci` from the root. |
+| API fails before listening | Check `Backend/.env`, MySQL access, and snapshot/seed output. |
+| MySQL connection fails | Verify host, port, username, password, database name, TLS, and whether the server is running/reachable. |
+| `mysql` / `mysqldump` is not found | Install MySQL client tools or set their executable paths in `Backend/.env`. |
+| Current database snapshot is missing | Obtain the private `current.sql` separately; GitHub does not contain it. |
+| Restored records are missing | Confirm both `.env` files target the intended database; avoid replacing an existing review database name with a sample name. |
+| `No trained model found` | Copy a compatible trusted `ML/restock_model.pkl`, or train once using the ML virtual environment. |
+| `ModuleNotFoundError` in ML | Install `ML/requirements.txt` using `ML/venv/Scripts/python.exe -m pip`; run the same Python environment for Flask. |
+| ML health works but model is not loaded | Start with `python serve.py` using the virtual environment; confirm the model file and restart Flask. |
+| Restocking uses heuristic fallback | Check Flask health, `ML_SERVICE_URL`, the model, and the backend's ML warning output. |
+| Port `4000`, `5001`, or `5173` is occupied | Use the already-running correct service, or stop the conflicting process before restarting. |
+| Browser CORS error | Match `CORS_ORIGIN` to the browser's origin and restart Express. Android's bundled origin is explicitly allowed by the server. |
+| Android loads UI but cannot load data | Start Express, verify its health, and use `10.0.2.2` for the emulator or the computer's LAN address for a phone. |
+| Android photo placeholders | Check that `Backend/uploads` contains the referenced images, that Express serves them, and that the installed APK includes the current image-routing fix. |
+| Frontend changes are absent in Android | Rebuild and reinstall the APK; restarting Vite alone does not update bundled files. |
+| Gradle cannot find Java or the SDK | Set an installed JDK 17/21, install SDK Platform/Build Tools 35, and configure the SDK location in Android Studio or local properties. |
+| Android settings directory is not writable | Set `ANDROID_USER_HOME`, `ANDROID_PREFS_ROOT`, and `GRADLE_USER_HOME` to the project-local directories shown in the build commands. |
+| Emulator will not boot or is very slow | Enable hardware virtualization and a supported emulator accelerator; run `emulator.exe -accel-check` from the SDK emulator directory. |
+| `adb` reports `offline` or the device is booting | Wait for Android to reach the home screen, then retry `adb devices` and installation. |
+| APK update signatures do not match | Rebuild with the original debug keystore. Uninstalling the old debug app also permits a fresh install, but removes its local session and held carts. |
+| A module is hidden | Check the signed-in account's role and module permissions; drivers are restricted to their delivery queue. |
+| Email or password reset fails | Verify SMTP configuration and `FRONTEND_URL` / `FRONTEND_BASE_PATH`; restart Express. |
+
+For deeper service details, see [Android setup](android/README.md) and
+[ML setup](ML/README.md).
